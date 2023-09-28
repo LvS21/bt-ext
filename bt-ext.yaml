@@ -1,0 +1,153 @@
+blueprint:
+  name: Better Thermostat Extension
+  author: Lars van Straelen
+  description: 'Temporarily sets <Better Thermostat - Entity> to a different temporary <Target temperature> depending on a presence, schedule and partymode. 
+
+  
+  Sets the configured <Target temperature> at the <Better Thermostat - Entity> when
+  
+  * the <Schedule> is currently set to off
+  
+  or
+  
+  * the <Person> is currently not in the <Zone>.
+  
+
+  Otherwise, the heating temperature set on the Better Thermostat is restored.
+
+
+  To activate the BT even if the <Schedule> is switched off or the <Person> is not in the <Zone>, the party mode can be activated via a switch.
+  
+  After the <Partymode> has been switched on, it is automatically deactivated again after the time period <Duration for Partymode>.
+
+  
+  ** Version 1.0, 28.09.2023
+
+'
+  domain: automation
+  #source_url:
+  input:
+    target_bt2:
+      name: Better Thermostat - Entity
+      description: Which Better Thermostat is to be controlled (climate, only Better Thermostat devices can be selected here)
+      selector:
+        entity:
+          filter:
+          - integration: better_thermostat
+
+    target_bt:
+      name: Better Thermostat - Entity
+      description: Which Better Thermostat is to be controlled (climate, only Better Thermostat devices can be selected here)
+      selector:
+        target:
+          device:
+            integration: better_thermostat
+          entity:
+            integration: better_thermostat
+            domain: climate
+
+    target_temperature:
+      name: Target temperature
+      description: The temperature to be set in case of absence or outside the schedule.
+      default: 18
+      selector:
+        number:
+          min: 5
+          max: 35
+          unit_of_measurement: °C
+
+    schedule_for_bt_on:
+      name: Schedule
+      description: Schedule when the heating should be on/activated/heat (schedule).
+      selector:
+        entity:
+          domain: schedule
+
+    monitor_person:
+      name: Person
+      description: This person must be in the defined <Zone> for the Better Thermostat to be switched on (person).
+      selector:
+        entity:
+          domain: person
+
+    monitor_zone:
+      name: Zone
+      description: The defined person must be in this zone for the Better Thermostat to be switched on (zone).
+      selector:
+        entity:
+          domain: zone
+
+    partymode_switch:
+      name: Partymode
+      description: The Better Thermostat can be activated by a switch, regardless of presence or schedule. Select the input_boolean that signals whether party mode is active or inactive. (input_boolean).
+      selector:
+        entity:
+          domain: input_boolean
+      #selector:
+        #entity:
+          #filter:
+          #- domain:
+            #- input_boolean
+          #multiple: false
+
+    partymode_duration:
+      name: Duration for Partymode
+      description: The duration of how long the <Partymode> should be active. After this period, the <Partymode> is automatically terminated again and the regulation is carried out according to presence and schedule.
+      default: 
+        hours: 0
+        minutes: 60
+        seconds: 0
+      selector:
+        duration:
+
+trigger:
+  - platform: event
+    event_type: automation_reloaded
+  - platform: state
+    entity_id: !input partymode_switch
+  - platform: state
+    entity_id: !input schedule_for_bt_on
+  - platform: state
+    entity_id: !input monitor_person
+  - platform: state
+    entity_id: !input partymode_switch
+    from: "off"
+    to: "on"
+    for: !input partymode_duration
+    id: DeactivatePartyMode
+
+condition: []
+
+action:
+  - if:
+      - condition: trigger
+        id:
+          - DeactivatePartyMode
+    then:
+      - service: input_boolean.turn_off
+        data: {}
+        target:
+          entity_id: !input partymode_switch
+  - if:
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: !input partymode_switch
+            state: "on"
+          - condition: and
+            conditions:
+              - condition: zone
+                entity_id: !input monitor_person
+                zone: !input monitor_zone
+              - condition: state
+                entity_id: !input schedule_for_bt_on
+                state: "on"
+    then:
+      - service: better_thermostat.restore_saved_target_temperature
+        data: {}
+        target: !input target_bt
+    else:
+      - service: better_thermostat.set_temp_target_temperature
+        data:
+          temperature: !input target_temperature
+        target: !input target_bt
